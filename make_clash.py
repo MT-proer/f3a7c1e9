@@ -295,6 +295,10 @@ def yaml_proxy(p):
                         out.append("%s  - %s" % (sub, q(item)))
                 else:
                     out.append("%s%s: %s" % (sub, kk, q(vv)))
+        elif isinstance(v, list):
+            out.append("%s%s:" % (prefix, k))
+            for item in v:
+                out.append("      - %s" % q(item))
         else:
             out.append("%s%s: %s" % (prefix, k, q(v)))
     return "\n".join(out)
