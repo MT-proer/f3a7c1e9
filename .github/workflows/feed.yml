@@ -15,7 +15,7 @@ permissions:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -26,16 +26,25 @@ jobs:
       - name: 拉取官方 ecfg 并本地解密
         run: python decrypt_nodes.py --lang default --out nodes.txt
 
-      - name: 生成 Clash 配置
-        run: python make_clash.py nodes.txt clash.yaml
+      - name: 过滤低延迟节点（TCP 握手 <=500ms）
+        run: |
+          python filter_fast.py nodes.txt nodes_fast.txt --max-ms 500 --timeout 1.0 --workers 300 \
+            || { echo "过滤失败，回退为全量"; cp nodes.txt nodes_fast.txt; }
+
+      - name: 生成 Clash 配置（全量 + 精选）
+        run: |
+          python make_clash.py nodes.txt clash.yaml
+          python make_clash.py nodes_fast.txt clash_fast.yaml
 
       - name: 校验
         run: |
-          n=$(wc -l < nodes.txt)
-          c=$(grep -c '^  - name:' clash.yaml)
-          echo "nodes=$n clash_entries=$c"
-          [ "$n" -ge 100 ] || { echo "节点数量异常"; exit 1; }
-          [ "$c" -ge 100 ] || { echo "Clash 条目异常"; exit 1; }
+          n=$(wc -l < nodes.txt); f=$(wc -l < nodes_fast.txt)
+          c=$(grep -c '^  - name:' clash.yaml); cf=$(grep -c '^  - name:' clash_fast.yaml)
+          echo "nodes=$n fast=$f clash=$c clash_fast=$cf"
+          [ "$n" -ge 100 ] || { echo "nodes 异常"; exit 1; }
+          [ "$c" -ge 100 ] || { echo "clash 异常"; exit 1; }
+          [ "$f" -ge 20 ] || { echo "fast 太少"; exit 1; }
+          [ "$cf" -ge 20 ] || { echo "clash_fast 太少"; exit 1; }
 
       - name: 发布到 feed 分支
         run: |
@@ -43,6 +52,6 @@ jobs:
           git config user.email "nodes-bot@users.noreply.github.com"
           git checkout --orphan feed
           git rm -rf --cached . >/dev/null 2>&1 || true
-          git add -f nodes.txt clash.yaml
+          git add -f nodes.txt clash.yaml nodes_fast.txt clash_fast.yaml
           git commit -m "feed: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           git push -f origin feed
