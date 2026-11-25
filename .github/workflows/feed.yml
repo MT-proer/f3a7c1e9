@@ -55,3 +55,9 @@ jobs:
           git add -f nodes.txt clash.yaml nodes_fast.txt clash_fast.yaml
           git commit -m "feed: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           git push -f origin feed
+
+      - name: 刷新 jsDelivr 缓存
+        run: |
+          for f in nodes.txt clash.yaml nodes_fast.txt clash_fast.yaml; do
+            curl -s -m 20 "https://purge.jsdelivr.net/gh/${{ github.repository }}@feed/$f" >/dev/null || true
+          done
