@@ -2,7 +2,7 @@ name: feed
 
 on:
   schedule:
-    - cron: '23 */3 * * *'   # UTC，每 3 小时（北京 08:23 11:23 14:23 …）
+    - cron: '23 */3 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -26,18 +26,23 @@ jobs:
       - name: 拉取官方 ecfg 并本地解密
         run: python decrypt_nodes.py --lang default --out nodes.txt
 
-      - name: 校验节点数量
+      - name: 生成 Clash 配置
+        run: python make_clash.py nodes.txt clash.yaml
+
+      - name: 校验
         run: |
           n=$(wc -l < nodes.txt)
-          echo "nodes: $n"
-          [ "$n" -ge 100 ] || { echo "节点数量异常，终止"; exit 1; }
+          c=$(grep -c '^  - name:' clash.yaml)
+          echo "nodes=$n clash_entries=$c"
+          [ "$n" -ge 100 ] || { echo "节点数量异常"; exit 1; }
+          [ "$c" -ge 100 ] || { echo "Clash 条目异常"; exit 1; }
 
-      - name: 发布到 feed 分支（分支内只含 nodes.txt）
+      - name: 发布到 feed 分支
         run: |
           git config user.name  "nodes-bot"
           git config user.email "nodes-bot@users.noreply.github.com"
           git checkout --orphan feed
           git rm -rf --cached . >/dev/null 2>&1 || true
-          git add -f nodes.txt
-          git commit -m "nodes: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git add -f nodes.txt clash.yaml
+          git commit -m "feed: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           git push -f origin feed
