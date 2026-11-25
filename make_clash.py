@@ -33,6 +33,13 @@ def truthy(v):
 
 
 def frag_name(link, default="node"):
+    if link.startswith("vmess://"):
+        try:
+            n = str(json.loads(b64d(link[8:])).get("ps") or "").strip()
+            if n:
+                return n
+        except Exception:
+            pass
     if "#" in link:
         n = urllib.parse.unquote(link.split("#", 1)[1]).strip()
         return n or default
