@@ -15,7 +15,7 @@ permissions:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -31,10 +31,15 @@ jobs:
           python filter_fast.py nodes.txt nodes_fast.txt --max-ms 500 --timeout 1.0 --workers 300 \
             || { echo "过滤失败，回退为全量"; cp nodes.txt nodes_fast.txt; }
 
-      - name: 生成 Clash 配置（全量 + 精选）
+      - name: 生成 Clash 配置（mihomo）
         run: |
           python make_clash.py nodes.txt clash.yaml
           python make_clash.py nodes_fast.txt clash_fast.yaml
+
+      - name: 生成 sing-box 配置
+        run: |
+          python make_singbox.py nodes.txt singbox.json
+          python make_singbox.py nodes_fast.txt singbox_fast.json
 
       - name: 校验
         run: |
@@ -45,6 +50,19 @@ jobs:
           [ "$c" -ge 100 ] || { echo "clash 异常"; exit 1; }
           [ "$f" -ge 20 ] || { echo "fast 太少"; exit 1; }
           [ "$cf" -ge 20 ] || { echo "clash_fast 太少"; exit 1; }
+          grep -q 'alpn: "' clash.yaml && { echo "alpn 被字符串化"; exit 1; } || true
+          python - <<'PY'
+          import json, sys
+          for f, lo in (("singbox.json", 100), ("singbox_fast.json", 20)):
+              d = json.load(open(f, encoding="utf-8"))
+              ob = d["outbounds"]
+              bad = [o for o in ob if not o.get("type")]
+              tags = [o["tag"] for o in ob]
+              assert not bad, (f, "empty type")
+              assert len(tags) == len(set(tags)), (f, "duplicate tag")
+              assert len(ob) >= lo, (f, len(ob))
+              print(f, "outbounds=", len(ob))
+          PY
 
       - name: 发布到 feed 分支
         run: |
@@ -52,12 +70,12 @@ jobs:
           git config user.email "nodes-bot@users.noreply.github.com"
           git checkout --orphan feed
           git rm -rf --cached . >/dev/null 2>&1 || true
-          git add -f nodes.txt clash.yaml nodes_fast.txt clash_fast.yaml
+          git add -f nodes.txt nodes_fast.txt clash.yaml clash_fast.yaml singbox.json singbox_fast.json
           git commit -m "feed: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           git push -f origin feed
 
       - name: 刷新 jsDelivr 缓存
         run: |
-          for f in nodes.txt clash.yaml nodes_fast.txt clash_fast.yaml; do
+          for f in nodes.txt nodes_fast.txt clash.yaml clash_fast.yaml singbox.json singbox_fast.json; do
             curl -s -m 20 "https://purge.jsdelivr.net/gh/${{ github.repository }}@feed/$f" >/dev/null || true
           done
